@@ -3,16 +3,6 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
-// 【重要】尝试动态导入 compression 插件，如果没安装则忽略，防止报错
-let compressionPlugin: any = null
-try {
-  // 如果您还没运行 npm install -D vite-plugin-compression，这里会失败，我们捕获它
-  const mod = require('vite-plugin-compression')
-  compressionPlugin = mod.default || mod
-} catch (e) {
-  // 插件未安装，忽略
-}
-
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const isProd = mode === 'production'
@@ -21,31 +11,16 @@ export default defineConfig(({ mode }) => {
   // 1. 配置参数 (源自 config/index.js)
   // ===========================
   const assetsSubDirectory = 'static' 
-  const assetsPublicPath = isProd ? '/public/' : '/'
+  const assetsPublicPath = env.VITE_PUBLIC_BASE || '/'
   const productionSourceMap = true
-  const productionGzip = false // 原配置为 false
-  const productionGzipExtensions = ['js', 'css']
   
   const devPort = 8088
-  const devProxyPath = 'https://mainsite-restapi.ele.me'
+  const devProxyPath = env.VITE_PARSER_API_TARGET || 'http://127.0.0.1:8000'
 
   // ===========================
   // 2. 插件配置
   // ===========================
   const plugins: any[] = [vue()]
-
-  // 只有当 productionGzip 为 true 且插件已安装时才启用
-  if (isProd && productionGzip && compressionPlugin) {
-    plugins.push(
-      compressionPlugin({
-        algorithm: 'gzip',
-        ext: '.gz',
-        include: new RegExp(`\\.(${productionGzipExtensions.join('|')})$`),
-        threshold: 10240,
-        minRatio: 0.8,
-      })
-    )
-  }
 
   // ===========================
   // 3. 返回配置对象
@@ -55,7 +30,7 @@ export default defineConfig(({ mode }) => {
 
     // 基础路径
     base: assetsPublicPath,
-
+    //设置路径别名
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -65,7 +40,7 @@ export default defineConfig(({ mode }) => {
       },
       extensions: ['.js', '.vue', '.json', '.ts', '.tsx', '.jsx', '.less', '.css', '.scss'],
     },
-
+    // 配置开发服务器代理，解决前端开发的跨域问题
     server: {
       port: devPort,
       open: true,
@@ -74,22 +49,23 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: devProxyPath,
           changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path.replace(/^\/api/, ''),
-        },
+          secure: false
+        }
       },
     },
 
     build: {
-      outDir: 'public', // 对应 assetsRoot
+      outDir: 'dist', // 对应 assetsRoot
       assetsDir: assetsSubDirectory, // 对应 assetsSubDirectory
       sourcemap: productionSourceMap, // 对应 productionSourceMap
       
       rollupOptions: {
         input: path.resolve(__dirname, 'index.html'),
         output: {
-          manualChunks: {
-            vendor: ['vue', 'vue-router', 'pinia'],
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              return 'vendor';
+            }
           },
           entryFileNames: `${assetsSubDirectory}/js/[name].js`,
           chunkFileNames: `${assetsSubDirectory}/js/[name].[hash].min.js`,

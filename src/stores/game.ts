@@ -1,184 +1,165 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useUiStore } from './ui'
 
-// --- 类型定义 ---
-interface TopicAnswer {
-  topic_answer_id: number | string
-  topic_id: number | string
-  answer_name: string
-  is_standard_answer: number // 0 or 1
+export type QuestionType = 'ONE' | 'MORE' | 'JUDGE'
+
+export interface QuizOption {
+  id: string
+  text: string
 }
 
-interface TopicDetail {
-  topic_id: number | string
-  active_topic_id: number | string
-  type: string
-  topic_name: string
-  active_id: number | string
-  active_title: string
-  active_topic_phase: string
-  active_start_time: string
-  active_end_time: string
-  topic_answer: TopicAnswer[]
+export interface QuizQuestion {
+  id: string
+  type: QuestionType
+  stem: string
+  options: QuizOption[]
+  correctAnswerIds: string[]
+  score?: number
+}
+
+export interface QuizParseResult {
+  quizTitle: string
+  questions: QuizQuestion[]
+}
+
+export interface QuestionReviewItem {
+  index: number
+  id: string
+  type: QuestionType
+  stem: string
+  userAnswerIds: string[]
+  correctAnswerIds: string[]
+  isCorrect: boolean
+}
+
+function normalizeAnswerIds(answerIds: string[]) {
+  return [...new Set(answerIds.map(String))].sort()
+}
+
+function isSameAnswerSet(left: string[], right: string[]) {
+  if (left.length !== right.length) return false
+  return left.every((id, index) => id === right[index])
 }
 
 export const useGameStore = defineStore('game', () => {
-  // ================= State =================
   const level = ref<string>('第一周')
+  const quizTitle = ref<string>('')
+  const questions = ref<QuizQuestion[]>([])
   const itemNum = ref<number>(1)
-  const elapsedTime = ref<number>(0) // 对应旧版 allTime
-  
-  // 【关键修复】timerId 只存数字 ID，初始为 null
-  // 在浏览器环境下 setInterval 返回 number
-  const timerId = ref<number | null>(null) 
-  
-  const userAnswers = ref<(number | string)[]>([])
-  
-  // 题目数据 (保持你提供的硬编码)
-  const itemDetail = ref<TopicDetail[]>([
-    {
-      "topic_id": 20,
-      "active_topic_id": 4,
-      "type": "ONE",
-      "topic_name": "题目一",
-      "active_id": 1,
-      "active_title": "欢乐星期五标题",
-      "active_topic_phase": "第一周",
-      "active_start_time": "1479139200",
-      "active_end_time": "1482163200",
-      "topic_answer": [
-        { "topic_answer_id": 1, "topic_id": 20, "answer_name": "答案aaaa", "is_standard_answer": 0 },
-        { "topic_answer_id": 2, "topic_id": 20, "answer_name": "正确答案", "is_standard_answer": 0 },
-        { "topic_answer_id": 3, "topic_id": 20, "answer_name": "答案cccc", "is_standard_answer": 0 },
-        { "topic_answer_id": 4, "topic_id": 20, "answer_name": "答案dddd", "is_standard_answer": 1 }
-      ]
-    },
-    {
-      "topic_id": 21,
-      "active_topic_id": 4,
-      "type": "MORE",
-      "topic_name": "题目二",
-      "active_id": 1,
-      "active_title": "欢乐星期五标题",
-      "active_topic_phase": "第一周",
-      "active_start_time": "1479139200",
-      "active_end_time": "1482163200",
-      "topic_answer": [
-        { "topic_answer_id": 5, "topic_id": 21, "answer_name": "答案A", "is_standard_answer": 1 },
-        { "topic_answer_id": 6, "topic_id": 21, "answer_name": "答案B", "is_standard_answer": 0 },
-        { "topic_answer_id": 7, "topic_id": 21, "answer_name": "正确答案", "is_standard_answer": 0 },
-        { "topic_answer_id": 8, "topic_id": 21, "answer_name": "答案D", "is_standard_answer": 0 }
-      ]
-    },
-    {
-      "topic_id": 21,
-      "active_topic_id": 4,
-      "type": "MORE",
-      "topic_name": "题目三",
-      "active_id": 1,
-      "active_title": "欢乐星期五标题",
-      "active_topic_phase": "第一周",
-      "active_start_time": "1479139200",
-      "active_end_time": "1482163200",
-      "topic_answer": [
-        { "topic_answer_id": 9, "topic_id": 21, "answer_name": "测试A", "is_standard_answer": 1 },
-        { "topic_answer_id": 10, "topic_id": 21, "answer_name": "BBBBBB", "is_standard_answer": 0 },
-        { "topic_answer_id": 11, "topic_id": 21, "answer_name": "CCCCCC", "is_standard_answer": 0 },
-        { "topic_answer_id": 12, "topic_id": 21, "answer_name": "正确答案", "is_standard_answer": 0 }
-      ]
-    },
-    {
-      "topic_id": 21,
-      "active_topic_id": 4,
-      "type": "MORE",
-      "topic_name": "题目四",
-      "active_id": 1,
-      "active_title": "欢乐星期五标题",
-      "active_topic_phase": "第一周",
-      "active_start_time": "1479139200",
-      "active_end_time": "1482163200",
-      "topic_answer": [
-        { "topic_answer_id": 13, "topic_id": 21, "answer_name": "正确答案", "is_standard_answer": 1 },
-        { "topic_answer_id": 14, "topic_id": 21, "answer_name": "A是错的", "is_standard_answer": 0 },
-        { "topic_answer_id": 15, "topic_id": 21, "answer_name": "D是对的", "is_standard_answer": 0 },
-        { "topic_answer_id": 16, "topic_id": 21, "answer_name": "C说的不对", "is_standard_answer": 0 }
-      ]
-    },
-    {
-      "topic_id": 21,
-      "active_topic_id": 4,
-      "type": "MORE",
-      "topic_name": "题目五",
-      "active_id": 1,
-      "active_title": "欢乐星期五标题",
-      "active_topic_phase": "第一周",
-      "active_start_time": "1479139200",
-      "active_end_time": "1482163200",
-      "topic_answer": [
-        { "topic_answer_id": 17, "topic_id": 21, "answer_name": "错误答案", "is_standard_answer": 1 },
-        { "topic_answer_id": 18, "topic_id": 21, "answer_name": "正确答案", "is_standard_answer": 0 },
-        { "topic_answer_id": 19, "topic_id": 21, "answer_name": "错误答案", "is_standard_answer": 0 },
-        { "topic_answer_id": 20, "topic_id": 21, "answer_name": "错误答案", "is_standard_answer": 0 }
-      ]
-    }
-  ])
+  const elapsedTime = ref<number>(0)
+  const timerId = ref<number | null>(null)
+  const userAnswersMap = ref<Record<string, string[]>>({})
 
-  // ================= Getters =================
-  const currentTopic = computed(() => {
+  const { clearError } = useUiStore()
+
+  const questionCount = computed(() => questions.value.length)
+
+  const currentTopic = computed<QuizQuestion | null>(() => {
     const index = itemNum.value - 1
-    return index >= 0 && index < itemDetail.value.length ? itemDetail.value[index] : null
+    return index >= 0 && index < questions.value.length ? questions.value[index] ?? null : null
   })
 
   const isLastQuestion = computed(() => {
-    return itemNum.value >= itemDetail.value.length
+    if (questionCount.value === 0) return false
+    return itemNum.value >= questionCount.value
   })
 
-const calculateScore = computed(() => {
-    let score = 0;
-    // 遍历用户答案
-    userAnswers.value.forEach((answerId, index) => {
-      // 找到对应题目的正确答案 ID
-      const topic = itemDetail.value[index];
-      if (topic) {
-        const correctAnswer = topic.topic_answer.find(ans => ans.is_standard_answer === 1);
-        // 比对 (注意类型转换，防止 string 和 number 比较失败)
-        if (correctAnswer && String(correctAnswer.topic_answer_id) === String(answerId)) {
-          score += 20;
-        }
+  const hasQuestions = computed(() => questionCount.value > 0)
+
+  const answeredCount = computed(() => Object.keys(userAnswersMap.value).length)
+
+  const calculateScore = computed(() => {
+    if (!questions.value.length) return 0
+
+    const explicitTotal = questions.value.reduce((sum, question) => sum + (question.score ?? 0), 0)
+    const fallbackPerQuestion = questionCount.value > 0 ? 100 / questionCount.value : 0
+    const hasCustomScore = explicitTotal > 0
+
+    return Math.round(
+      questions.value.reduce((score, question) => {
+        const userAnswers = normalizeAnswerIds(userAnswersMap.value[question.id] ?? [])
+        const standardAnswers = normalizeAnswerIds(question.correctAnswerIds ?? [])
+        if (!isSameAnswerSet(userAnswers, standardAnswers)) return score
+        return score + (hasCustomScore ? question.score ?? 0 : fallbackPerQuestion)
+      }, 0)
+    )
+  })
+
+  const reviewItems = computed<QuestionReviewItem[]>(() =>
+    questions.value.map((question, index) => {
+      const userAnswerIds = normalizeAnswerIds(userAnswersMap.value[question.id] ?? [])
+      const correctAnswerIds = normalizeAnswerIds(question.correctAnswerIds ?? [])
+      return {
+        index: index + 1,
+        id: question.id,
+        type: question.type,
+        stem: question.stem,
+        userAnswerIds,
+        correctAnswerIds,
+        isCorrect: isSameAnswerSet(userAnswerIds, correctAnswerIds)
       }
-    });
-    return score;
-  })
-  // ================= Actions =================
+    })
+  )
 
-  function addNum(answerId: number | string) {
-    userAnswers.value.push(answerId)
+  function setParseResult(payload: QuizParseResult) {
+    quizTitle.value = payload.quizTitle || '智能题库'
+    questions.value = payload.questions
+    initializeData()
+    clearError()
+  }
 
-    if (itemNum.value < itemDetail.value.length) {
+  function setQuestionAnswer(questionId: string, answerIds: string[]) {
+    userAnswersMap.value[questionId] = normalizeAnswerIds(answerIds)
+  }
+
+  function submitCurrentQuestion(answerIds: string[]) {
+    const topic = currentTopic.value
+    if (!topic) return
+    setQuestionAnswer(topic.id, answerIds)
+  }
+
+  function nextQuestion() {
+    if (itemNum.value < questionCount.value) {
       itemNum.value++
-    } else {
-      // 最后一题答完，自动停止计时（可选，也可以在组件手动调）
-      stopTimer()
+      return
+    }
+    stopTimer()
+  }
+
+  function prevQuestion() {
+    if (itemNum.value > 1) {
+      itemNum.value--
     }
   }
 
+  function goToQuestion(targetIndex: number) {
+    if (questionCount.value === 0) return
+    const safeIndex = Math.min(Math.max(targetIndex, 1), questionCount.value)
+    itemNum.value = safeIndex
+  }
+
   function initializeData() {
-    stopTimer() // 确保先清除旧的
+    stopTimer()
     itemNum.value = 1
     elapsedTime.value = 0
-    userAnswers.value = []
-    // 如果需要重置题目数据，可以在这里操作 itemDetail.value = [...]
+    userAnswersMap.value = {}
+    clearError()
+  }
+
+  function clearAllData() {
+    initializeData()
+    quizTitle.value = ''
+    questions.value = []
   }
 
   function startTimer() {
-    if (timerId.value !== null) return // 防止重复启动
-
+    if (timerId.value !== null) return
     timerId.value = window.setInterval(() => {
       elapsedTime.value++
     }, 1000)
   }
 
-  // 【关键修复】暴露 stopTimer 供组件调用
   function stopTimer() {
     if (timerId.value !== null) {
       clearInterval(timerId.value)
@@ -186,20 +167,30 @@ const calculateScore = computed(() => {
     }
   }
 
-  // ================= Return =================
   return {
     level,
+    quizTitle,
+    questions,
     itemNum,
     elapsedTime,
-    timerId,      // 如果组件只需要读取状态，可以暴露，但不要让组件修改它
-    itemDetail,
-    userAnswers,
+    timerId,
+    userAnswersMap,
+    questionCount,
     currentTopic,
     isLastQuestion,
-    addNum,
+    hasQuestions,
+    answeredCount,
+    calculateScore,
+    reviewItems,
+    setParseResult,
+    setQuestionAnswer,
+    submitCurrentQuestion,
+    nextQuestion,
+    prevQuestion,
+    goToQuestion,
     initializeData,
+    clearAllData,
     startTimer,
-    stopTimer,
-    calculateScore     // 必须暴露此方法
+    stopTimer
   }
 })

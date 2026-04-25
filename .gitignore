@@ -37,3 +37,25 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# Frontend build output
+public/static/
+public/index.html
+dist/
+
+# Local env files
+.env.production
+
+# Python backend cache/build
+backend/**/__pycache__/
+*.py[cod]
+
+# Electron build/cache
+.electron-cache/
+desktop/build/
+desktop/dist/
+desktop/release/
+
+# Resume/generated scripts assets
+scripts/generate_resume_*.py
+*.docx

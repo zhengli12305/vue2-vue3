@@ -1,228 +1,268 @@
 <template>
-  <section class="item-container-section">
-    <!-- 顶部提示 -->
-    <header class="top_tips">
-      <span class="num_tip" v-if="fatherComponent === 'home'">{{ gameStore.level }}</span>
-      <span class="num_tip" v-if="fatherComponent === 'item'">题目{{ gameStore.itemNum }}</span>
-    </header>
+  <section class="item-container">
+    <div class="quiz-block">
+      <div v-if="!currentTopic">
+        <p>暂无题目，请先上传文件。</p>
+        <router-link to="/upload" class="button">去上传</router-link>
+      </div>
+      <div v-else>
+        <div class="question-strip">
+          <button
+            v-for="num in visibleQuestionNumbers"
+            :key="num"
+            class="strip-item"
+            :class="{ active: num === gameStore.itemNum }"
+            @click="handleGoToQuestion(num)"
+          >
+            {{ num }}
+          </button>
+        </div>
 
-    <!-- 首页状态 -->
-    <div v-if="fatherComponent === 'home'">
-      <div class="home_logo item_container_style"></div>
-      <router-link to="/item" class="start button_style"></router-link>
-    </div>
+        <header class="topic-title">
+          <span>{{ currentTopic.type === 'ONE' ? '单选题' : currentTopic.type === 'MORE' ? '多选题' : '判断题' }}</span>
+          <strong>{{ gameStore.itemNum }}/{{ gameStore.questionCount }}</strong>
+        </header>
+        <p class="stem">{{ currentTopic.stem }}</p>
 
-    <!-- 答题状态 -->
-    <div v-if="fatherComponent === 'item'">
-      <div class="item_back item_container_style">
-        <div
-          class="item_list_container"
-          v-if="gameStore.itemDetail && gameStore.itemDetail.length > 0"
-        >
-          <header class="item_title">
-            {{ currentTopic?.topic_name }}
-          </header>
-          <ul>
-            <li
-              v-for="(item, index) in currentTopic?.topic_answer"
-              :key="index"
-              @click="handleChoose(index, item.topic_answer_id)"
-              class="item_list"
-            >
-              <span class="option_style" :class="{ has_choosed: choosedNum === index }">
-                {{ getOptionLabel(index) }}
-              </span>
-              <span class="option_detail">{{ item.answer_name }}</span>
-            </li>
-          </ul>
+        <ul class="option-list">
+          <li
+            v-for="(option, index) in currentTopic.options"
+            :key="option.id"
+            class="option-item"
+            @click="toggleOption(option.id)"
+          >
+            <span class="option-tag" :class="{ selected: isSelected(option.id) }">
+              {{ getOptionLabel(index) }}
+            </span>
+            <span>{{ option.text }}</span>
+          </li>
+        </ul>
+
+        <div class="nav-actions">
+          <button class="button ghost" :disabled="gameStore.itemNum <= 1" @click="handlePrevItem">上一题</button>
+          <button class="button" @click="handleNextItem">
+            {{ gameStore.isLastQuestion ? '提交答卷' : '下一题' }}
+          </button>
         </div>
       </div>
-
-      <!-- 按钮：下一题 或 提交 -->
-      <span
-        class="next_item button_style"
-        @click="handleNextItem"
-        v-if="gameStore.itemNum < gameStore.itemDetail.length"
-      ></span>
-      <span class="submit_item button_style" v-else @click="handleSubmitAnswer"></span>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useGameStore } from '@/stores/game' // 引入刚才创建的 store
+import { useGameStore } from '@/stores/game'
 
-// --- Props ---
-const props = defineProps<{
-  fatherComponent: 'home' | 'item'
-}>()
-
-// --- Router & Store ---
 const router = useRouter()
 const gameStore = useGameStore()
+const localSelection = ref<string[]>([])
 
-// --- Local State ---
-const choosedNum = ref<number | null>(null)
-const choosedId = ref<number | string | null>(null)
-
-// --- Computed ---
-// 获取当前题目详情，避免模板里写复杂的索引逻辑
-const currentTopic = computed(() => {
-  const index = gameStore.itemNum - 1
-  return gameStore.itemDetail[index]
+const currentTopic = computed(() => gameStore.currentTopic)
+const visibleQuestionNumbers = computed(() => {
+  const total = gameStore.questionCount
+  if (total <= 0) return []
+  const nums: number[] = []
+  for (let i = 1; i <= total; i++) nums.push(i)
+  return nums
 })
 
-// --- Methods ---
+watch(
+  () => currentTopic.value?.id,
+  (id) => {
+    if (!id) {
+      localSelection.value = []
+      return
+    }
+    localSelection.value = [...(gameStore.userAnswersMap[id] ?? [])]
+  },
+  { immediate: true }
+)
 
-const getOptionLabel = (type: number): string => {
-  const labels = ['A', 'B', 'C', 'D']
-  return labels[type] || ''
+function getOptionLabel(index: number): string {
+  return String.fromCharCode(65 + index)
 }
 
-const handleChoose = (index: number, id: number | string) => {
-  choosedNum.value = index
-  choosedId.value = id
+function isSelected(optionId: string) {
+  return localSelection.value.includes(optionId)
 }
 
-const handleNextItem = () => {
-  if (choosedNum.value !== null) {
-    choosedNum.value = null
-    // 调用 Pinia Action
-    gameStore.addNum(choosedId.value!)
-  } else {
-    alert('您还没有选择答案哦')
+function toggleOption(optionId: string) {
+  const topic = currentTopic.value
+  if (!topic) return
+
+  if (topic.type === 'MORE') {
+    if (isSelected(optionId)) {
+      localSelection.value = localSelection.value.filter((id) => id !== optionId)
+      return
+    }
+    localSelection.value = [...localSelection.value, optionId]
+    return
   }
+
+  localSelection.value = [optionId]
 }
 
-const handleSubmitAnswer = () => {
-  if (choosedNum.value !== null) {
-    gameStore.addNum(choosedId.value!)
+function persistCurrentSelection() {
+  const topic = currentTopic.value
+  if (!topic) return
+  gameStore.submitCurrentQuestion(localSelection.value)
+}
 
-    // 清除定时器
-    gameStore.stopTimer()
-
-    // 路由跳转
-    router.push('/score')
-  } else {
-    alert('您还没有选择答案哦')
+function handleNextItem() {
+  persistCurrentSelection()
+  if (gameStore.isLastQuestion) {
+    handleSubmitAnswer()
+    return
   }
+  gameStore.nextQuestion()
 }
 
-// --- Lifecycle ---
-if (props.fatherComponent === 'home') {
-  gameStore.initializeData()
-
-  // 设置背景图 (确保图片路径正确)
-  document.body.style.backgroundImage = "url('/static/img/1-1.jpg')";
-  // import bgImg from '@/assets/1-1.jpg';
-  // document.body.style.backgroundImage = `url(${bgImg})`;
+function handlePrevItem() {
+  persistCurrentSelection()
+  gameStore.prevQuestion()
 }
+
+function handleGoToQuestion(index: number) {
+  persistCurrentSelection()
+  gameStore.goToQuestion(index)
+}
+
+async function handleSubmitAnswer() {
+  persistCurrentSelection()
+  gameStore.stopTimer()
+  await router.push('/score')
+}
+
+// if (props.fatherComponent === 'home') {
+//   gameStore.initializeData()
+// }
 </script>
 
 <style lang="less" scoped>
-.top_tips{
-		position: absolute;
-		height: 7.35rem;
-		width: 3.25rem;
-		top: -1.3rem;
-		right: 1.6rem;
-		background: url(../images/WechatIMG2.png) no-repeat;
-		background-size: 100% 100%;
-		z-index: 10;
-		.num_tip{
-			position: absolute;
-			left: 0.48rem;
-			bottom: 1.1rem;
-			height: 0.7rem;
-			width: 2.5rem;
-			font-size: 0.6rem;
-			font-family: '黑体';
-			font-weight: 600;
-			color: #a57c50;
-			text-align: center;
-		}
-	}
-	.item_container_style{
-		height: 11.625rem;
-		width: 13.15rem;
-		background-repeat: no-repeat;
-		position: absolute;
-		top: 4.1rem;
-		left: 1rem;
-	}	
-	.home_logo{
-		background-image: url(../images/1-2.png);
-		background-size: 13.142rem 100%;
-		background-position: right center;
-	}
-	.item_back{
-		background-image: url(../images/2-1.png);
-		background-size: 100% 100%;
-	}
-	.button_style{
-        display: block;
-        height: 2.1rem;
-        width: 4.35rem;
-        background-size: 100% 100%;
-        position: absolute;
-        top: 16.5rem;
-        left: 50%;
-        margin-left: -2.4rem;
-        background-repeat: no-repeat;
-	}
-	.start{
-        background-image: url(../images/1-4.png);
-    }
-    .next_item{
-    	background-image: url(../images/2-2.png);
-    }
-    .submit_item{
-    	background-image: url(../images/3-1.png);
-    }
-    .item_list_container{
-    	position: absolute;
-    	height: 7.0rem;
-    	width: 8.0rem;
-    	top: 2.4rem;
-    	left: 3rem;
-		-webkit-font-smoothing: antialiased;
-    }
-	.item_title{
-		font-size: 0.65rem;
-		color: #00e;
-		line-height: 0.7rem;
-	}
-	.item_list{
-		font-size: 0;
-		margin-top: 0.4rem;
-		width: 10rem;
-		span{
-			display: inline-block;
-			font-size: 0.6rem;
-			color: #00e;
-			vertical-align: middle;
-		}
-		.option_style{
-			height: 0.725rem;
-			width: 0.725rem;
-			border: 1px solid #fff;
-			border-radius: 50%;
-			line-height: 0.725rem;
-			text-align: center;
-			margin-right: 0.3rem;
-			font-size: 0.5rem;
-			font-family: 'Arial';
-		}
-		.has_choosed{
-			background-color: #ffd400;
-			color: #575757;
-			border-color: #ffd400;
-		}
-		.option_detail{
-			width: 7.5rem;
-			padding-top: 0.11rem;
-		}
-	}
+.item-container {
+  max-width: 920px;
+  margin: 24px auto;
+  padding: 28px 24px 42px;
+}
+
+.quiz-block,
+.home-block {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 26px 24px;
+}
+
+.quiz-block {
+  min-height: 72vh;
+}
+
+.topic-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.stem {
+  font-size: 18px;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.question-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 12px;
+  margin-bottom: 14px;
+  scrollbar-width: thin;
+}
+
+.strip-item {
+  min-width: 46px;
+  height: 46px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 17px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.strip-item.active {
+  border-color: #22d3ee;
+  color: #06b6d4;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18);
+}
+
+.strip-item:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.option-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 8px 4px;
+  border-radius: 10px;
+}
+
+.option-item:hover {
+  background: #f8fafc;
+}
+
+.option-tag {
+  min-width: 28px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.option-tag.selected {
+  color: #2563eb;
+}
+
+.button {
+  display: inline-block;
+  border: none;
+  border-radius: 8px;
+  background-color: #2563eb;
+  color: #fff;
+  padding: 12px 20px;
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.button.ghost {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.nav-actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
 </style>
